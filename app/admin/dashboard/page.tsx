@@ -18,6 +18,8 @@ export default function AdminDashboard() {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   // Per-site inline "add URL" form state: label -> url input value
   const [addingTo, setAddingTo] = useState<Record<string, string>>({});
+  // Scrape preview state: url -> result or "loading"
+  const [previews, setPreviews] = useState<Record<string, { charCount: number; pageTitle: string; finalUrl: string; cookieDismissed: boolean; preview: string } | "loading" | string>>({});
 
   const loadUrls = useCallback(async () => {
     const res = await fetch("/api/urls");
@@ -85,6 +87,25 @@ export default function AdminDashboard() {
     if (!err) {
       setAddingTo((prev) => ({ ...prev, [label]: "" }));
       loadUrls();
+    }
+  }
+
+  async function handlePreview(url: string) {
+    setPreviews((prev) => ({ ...prev, [url]: "loading" }));
+    try {
+      const res = await fetch("/api/debug/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPreviews((prev) => ({ ...prev, [url]: data.error || "Failed" }));
+      } else {
+        setPreviews((prev) => ({ ...prev, [url]: data }));
+      }
+    } catch {
+      setPreviews((prev) => ({ ...prev, [url]: "Network error" }));
     }
   }
 
@@ -244,17 +265,49 @@ export default function AdminDashboard() {
                 <li key={label} className="bg-gray-50 rounded-xl px-4 py-3">
                   <p className="text-sm font-semibold text-gray-900 mb-2">{label}</p>
                   <ul className="space-y-1.5 mb-3">
-                    {entries.map((u) => (
-                      <li key={u.id} className="flex items-center justify-between gap-3">
-                        <p className="text-xs text-gray-500 truncate min-w-0">{u.url}</p>
-                        <button
-                          onClick={() => handleDelete(u.id)}
-                          className="flex-shrink-0 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
-                        >
-                          Remove
-                        </button>
-                      </li>
-                    ))}
+                    {entries.map((u) => {
+                      const preview = previews[u.url];
+                      return (
+                        <li key={u.id}>
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs text-gray-500 truncate min-w-0">{u.url}</p>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <button
+                                onClick={() => handlePreview(u.url)}
+                                disabled={preview === "loading"}
+                                className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors disabled:opacity-50"
+                              >
+                                {preview === "loading" ? "Testing…" : "Test"}
+                              </button>
+                              <button
+                                onClick={() => handleDelete(u.id)}
+                                className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                          {preview && preview !== "loading" && (
+                            <div className="mt-2 rounded-lg bg-white border border-gray-200 p-3 text-xs space-y-1">
+                              {typeof preview === "string" ? (
+                                <p className="text-red-600">{preview}</p>
+                              ) : (
+                                <>
+                                  <p><span className="font-medium">Title:</span> {preview.pageTitle || "(none)"}</p>
+                                  <p><span className="font-medium">Final URL:</span> <span className="text-gray-400 break-all">{preview.finalUrl}</span></p>
+                                  <p><span className="font-medium">Chars extracted:</span> {preview.charCount.toLocaleString()}</p>
+                                  <p><span className="font-medium">Cookie dismissed:</span> {preview.cookieDismissed ? "yes" : "no"}</p>
+                                  <details className="mt-1">
+                                    <summary className="cursor-pointer font-medium text-gray-600">Text preview (first 3000 chars)</summary>
+                                    <pre className="mt-1 whitespace-pre-wrap text-gray-500 max-h-48 overflow-y-auto">{preview.preview}</pre>
+                                  </details>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                   {/* Inline add-URL form for this site */}
                   {addingTo[label] !== undefined ? (
