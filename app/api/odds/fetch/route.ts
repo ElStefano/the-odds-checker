@@ -4,6 +4,17 @@ import { readUrls, writeOdds, BettingUrl } from "@/lib/data";
 import Anthropic from "@anthropic-ai/sdk";
 import { chromium } from "playwright-core";
 
+// ---------------------------------------------------------------------------
+// Module-level fetch state — shared across requests in the same server process
+// ---------------------------------------------------------------------------
+export interface FetchState {
+  status: "idle" | "fetching";
+  lastUpdated?: string;
+  error?: string;
+}
+
+export let fetchState: FetchState = { status: "idle" };
+
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Selectors that typically trigger "accept all cookies" on Swedish betting sites
@@ -101,25 +112,16 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
   return results;
 }
 
-export async function POST() {
-  const session = await getSession();
-  if (!session.isAdmin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const urls = readUrls();
-  if (urls.length === 0) {
-    return NextResponse.json({ error: "No URLs configured" }, { status: 400 });
-  }
-
+async function runFetch(urls: BettingUrl[]) {
   // Scrape all pages using a single shared browser with limited concurrency
   const pageContents = await scrapeAll(urls);
 
   if (pageContents.length === 0) {
-    return NextResponse.json(
-      { error: "Could not load any of the configured URLs." },
-      { status: 502 }
-    );
+    fetchState = {
+      status: "idle",
+      error: "Could not load any of the configured URLs.",
+    };
+    return;
   }
 
   const pagesBlock = pageContents
@@ -131,45 +133,7 @@ export async function POST() {
 
   const siteLabels = pageContents.map(({ entry }) => entry.label).join(", ");
 
-  const prompt = `You are an extremely well-read friend who has spent years studying betting markets across every sport. You have a gift for cutting through the noise and curating exactly what's worth paying attention to.
-
-Below is the raw text content scraped from these betting sites: ${siteLabels}.
-Each site's content is separated by a === SITE_LABEL (URL) === header.
-You MUST read through every section and extract odds from ALL of them — do not stop after the first few sites.
-
-${pagesBlock}
-
-Return a JSON object with this exact structure — nothing else, no markdown, just raw JSON:
-
-{
-  "lastUpdated": "<ISO 8601 timestamp>",
-  "curatorNote": "<One punchy sentence about the single most interesting opportunity you've spotted>",
-  "matches": [
-    {
-      "id": "<slug-style-id>",
-      "name": "<Team A vs Team B>",
-      "sport": "<sport name>",
-      "date": "<ISO 8601 date or datetime if visible, else empty string>",
-      "odds": [
-        {
-          "site": "<betting site label>",
-          "market": "<market type e.g. Match Winner, Both Teams to Score, Over 2.5 Goals>",
-          "selection": "<selection name>",
-          "value": <decimal odds as number>,
-          "url": "<source URL>"
-        }
-      ]
-    }
-  ]
-}
-
-Rules:
-- Sort matches so the most compelling / best-value odds come first
-- Within each match, list odds from best value (highest decimal) to lowest
-- Only include odds that are explicitly present in the scraped text — do not invent numbers
-- For each match, extract ALL three Match Winner outcomes (home win, draw, away win) from EVERY site that lists that match — never skip a site's home-win odds just because you already have that outcome from another site
-- The "site" field must use the exact label from the === header of the section the odds were found in (e.g. "Betsson", "Unibet") — never omit a site
-- The curatorNote should sound like a knowledgeable friend tipping you off, not a marketing line`;
+  const prompt = `You are an extremely well-read friend who has spent years studying betting markets across every sport. You have a gift for cutting through the noise and curating exactly what's worth paying attention to.\n\nBelow is the raw text content scraped from these betting sites: ${siteLabels}.\nEach site's content is separated by a === SITE_LABEL (URL) === header.\nYou MUST read through every section and extract odds from ALL of them — do not stop after the first few sites.\n\n${pagesBlock}\n\nReturn a JSON object with this exact structure — nothing else, no markdown, just raw JSON:\n\n{\n  "lastUpdated": "<ISO 8601 timestamp>",\n  "curatorNote": "<One punchy sentence about the single most interesting opportunity you've spotted>",\n  "matches": [\n    {\n      "id": "<slug-style-id>",\n      "name": "<Team A vs Team B>",\n      "sport": "<sport name>",\n      "date": "<ISO 8601 date or datetime if visible, else empty string>",\n      "odds": [\n        {\n          "site": "<betting site label>",\n          "market": "<market type e.g. Match Winner, Both Teams to Score, Over 2.5 Goals>",\n          "selection": "<selection name>",\n          "value": <decimal odds as number>,\n          "url": "<source URL>"\n        }\n      ]\n    }\n  ]\n}\n\nRules:\n- Sort matches so the most compelling / best-value odds come first\n- Within each match, list odds from best value (highest decimal) to lowest\n- Only include odds that are explicitly present in the scraped text — do not invent numbers\n- For each match, extract ALL three Match Winner outcomes (home win, draw, away win) from EVERY site that lists that match — never skip a site's home-win odds just because you already have that outcome from another site\n- The "site" field must use the exact label from the === header of the section the odds were found in (e.g. "Betsson", "Unibet") — never omit a site\n- The curatorNote should sound like a knowledgeable friend tipping you off, not a marketing line`;
 
   try {
     const response = await client.messages.create({
@@ -190,15 +154,39 @@ Rules:
     const jsonString = jsonMatch ? jsonMatch[1] : rawText;
 
     const oddsData = JSON.parse(jsonString.trim());
-    oddsData.lastUpdated = new Date().toISOString();
+    const now = new Date().toISOString();
+    oddsData.lastUpdated = now;
     writeOdds(oddsData);
 
-    return NextResponse.json(oddsData);
+    fetchState = { status: "idle", lastUpdated: now };
   } catch (err) {
     console.error("Claude fetch error:", err);
-    return NextResponse.json(
-      { error: "Failed to extract odds" },
-      { status: 500 }
-    );
+    fetchState = { status: "idle", error: "Failed to extract odds from Claude." };
   }
+}
+
+export async function POST() {
+  const session = await getSession();
+  if (!session.isAdmin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // If a fetch is already in progress, don't start another one
+  if (fetchState.status === "fetching") {
+    return NextResponse.json({ status: "fetching" }, { status: 202 });
+  }
+
+  const urls = readUrls();
+  if (urls.length === 0) {
+    return NextResponse.json({ error: "No URLs configured" }, { status: 400 });
+  }
+
+  // Mark as fetching and kick off background work — do NOT await
+  fetchState = { status: "fetching" };
+  runFetch(urls).catch((err) => {
+    console.error("Unhandled error in runFetch:", err);
+    fetchState = { status: "idle", error: "Unexpected error during fetch." };
+  });
+
+  return NextResponse.json({ status: "fetching" }, { status: 202 });
 }
