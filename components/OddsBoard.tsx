@@ -29,8 +29,11 @@ export function OddsBoard() {
   const [data, setData] = useState<OddsData | null>(null);
   const [sites, setSites] = useState<SiteEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [fetchStatus, setFetchStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
-  const fetchOdds = useCallback(async () => {
+  const loadOdds = useCallback(async () => {
     setLoading(true);
     try {
       const [oddsRes, urlsRes] = await Promise.all([
@@ -57,8 +60,28 @@ export function OddsBoard() {
   }, []);
 
   useEffect(() => {
-    fetchOdds();
-  }, [fetchOdds]);
+    loadOdds();
+    fetch("/api/auth/me").then((r) => r.json()).then((d) => setIsAdmin(d.isAdmin ?? false));
+  }, [loadOdds]);
+
+  async function handleFetch() {
+    setFetching(true);
+    setFetchStatus(null);
+    try {
+      const res = await fetch("/api/odds/fetch", { method: "POST" });
+      if (!res.ok) {
+        const d = await res.json();
+        setFetchStatus({ type: "error", message: d.error || "Fetch failed." });
+        return;
+      }
+      setFetchStatus({ type: "success", message: "Odds updated." });
+      await loadOdds();
+    } catch {
+      setFetchStatus({ type: "error", message: "Network error." });
+    } finally {
+      setFetching(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -113,6 +136,26 @@ export function OddsBoard() {
         <div className="mb-6 bg-indigo-50 border border-indigo-100 rounded-xl px-5 py-4">
           <p className="text-sm font-medium text-indigo-500 mb-1">Your curator says</p>
           <p className="text-indigo-900 text-base">{data.curatorNote}</p>
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="mb-4 flex items-center gap-3">
+          <button
+            onClick={handleFetch}
+            disabled={fetching}
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold px-4 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-2"
+          >
+            {fetching && (
+              <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            )}
+            {fetching ? "Fetching…" : "Fetch odds"}
+          </button>
+          {fetchStatus && (
+            <span className={`text-xs font-medium ${fetchStatus.type === "success" ? "text-emerald-600" : "text-red-600"}`}>
+              {fetchStatus.message}
+            </span>
+          )}
         </div>
       )}
 
