@@ -61,7 +61,6 @@ export function OddsBoard() {
   }
 
   const matches = (data?.matches ?? [])
-    .filter((m) => /football|soccer|fotboll/i.test(m.sport))
     .filter((m) => {
       // Only show matches where all 3 outcomes (home/draw/away) have at least one site with odds
       const parts = m.name.split(/ vs\.? /i);
