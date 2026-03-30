@@ -16,6 +16,8 @@ export default function AdminDashboard() {
     message: string;
   } | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  // Per-site inline "add URL" form state: label -> url input value
+  const [addingTo, setAddingTo] = useState<Record<string, string>>({});
 
   const loadUrls = useCallback(async () => {
     const res = await fetch("/api/urls");
@@ -50,22 +52,40 @@ export default function AdminDashboard() {
     loadLastUpdated();
   }, [loadUrls, loadLastUpdated]);
 
-  async function handleAddUrl(e: FormEvent) {
-    e.preventDefault();
-    setAddError("");
+  async function postUrl(url: string, label: string): Promise<string | null> {
     const res = await fetch("/api/urls", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: newUrl, label: newLabel }),
+      body: JSON.stringify({ url, label }),
     });
     if (!res.ok) {
       const data = await res.json();
-      setAddError(data.error || "Failed to add URL.");
+      return data.error || "Failed to add URL.";
+    }
+    return null;
+  }
+
+  async function handleAddUrl(e: FormEvent) {
+    e.preventDefault();
+    setAddError("");
+    const err = await postUrl(newUrl, newLabel || newUrl);
+    if (err) {
+      setAddError(err);
       return;
     }
     setNewUrl("");
     setNewLabel("");
     loadUrls();
+  }
+
+  async function handleAddToSite(label: string) {
+    const url = addingTo[label]?.trim();
+    if (!url) return;
+    const err = await postUrl(url, label);
+    if (!err) {
+      setAddingTo((prev) => ({ ...prev, [label]: "" }));
+      loadUrls();
+    }
   }
 
   async function handleDelete(id: string) {
@@ -99,6 +119,18 @@ export default function AdminDashboard() {
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/admin");
+  }
+
+  // Group URLs by label
+  const siteGroups: { label: string; entries: BettingUrl[] }[] = [];
+  const seen = new Map<string, BettingUrl[]>();
+  for (const u of urls) {
+    const key = u.label.toLowerCase();
+    if (!seen.has(key)) {
+      seen.set(key, []);
+      siteGroups.push({ label: u.label, entries: seen.get(key)! });
+    }
+    seen.get(key)!.push(u);
   }
 
   return (
@@ -153,9 +185,9 @@ export default function AdminDashboard() {
           )}
         </section>
 
-        {/* Add URL */}
+        {/* Add new site */}
         <section className="bg-white rounded-2xl shadow-sm border border-gray-200 px-6 py-5 mb-6">
-          <h2 className="font-semibold text-gray-900 mb-4">Add Betting Site URL</h2>
+          <h2 className="font-semibold text-gray-900 mb-4">Add Betting Site</h2>
           <form onSubmit={handleAddUrl} className="space-y-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -172,13 +204,13 @@ export default function AdminDashboard() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Label <span className="text-gray-400 font-normal">(optional)</span>
+                Site name <span className="text-gray-400 font-normal">(used to group multiple URLs)</span>
               </label>
               <input
                 type="text"
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
-                placeholder="e.g. Bet365 Football"
+                placeholder="e.g. Unibet"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
             </div>
@@ -191,36 +223,82 @@ export default function AdminDashboard() {
               type="submit"
               className="bg-gray-900 hover:bg-gray-700 text-white font-semibold px-5 py-2 rounded-lg text-sm transition-colors"
             >
-              Add URL
+              Add site
             </button>
           </form>
         </section>
 
-        {/* URL List */}
+        {/* Site list grouped by label */}
         <section className="bg-white rounded-2xl shadow-sm border border-gray-200 px-6 py-5">
           <h2 className="font-semibold text-gray-900 mb-4">
-            Configured URLs{" "}
-            <span className="text-gray-400 font-normal text-sm">({urls.length})</span>
+            Configured Sites{" "}
+            <span className="text-gray-400 font-normal text-sm">
+              ({siteGroups.length} {siteGroups.length === 1 ? "site" : "sites"}, {urls.length} {urls.length === 1 ? "URL" : "URLs"})
+            </span>
           </h2>
-          {urls.length === 0 ? (
-            <p className="text-sm text-gray-400">No URLs added yet.</p>
+          {siteGroups.length === 0 ? (
+            <p className="text-sm text-gray-400">No sites added yet.</p>
           ) : (
-            <ul className="space-y-2">
-              {urls.map((u) => (
-                <li
-                  key={u.id}
-                  className="flex items-center justify-between gap-4 py-2 px-3 bg-gray-50 rounded-lg"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{u.label}</p>
-                    <p className="text-xs text-gray-400 truncate">{u.url}</p>
-                  </div>
-                  <button
-                    onClick={() => handleDelete(u.id)}
-                    className="flex-shrink-0 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
-                  >
-                    Remove
-                  </button>
+            <ul className="space-y-4">
+              {siteGroups.map(({ label, entries }) => (
+                <li key={label} className="bg-gray-50 rounded-xl px-4 py-3">
+                  <p className="text-sm font-semibold text-gray-900 mb-2">{label}</p>
+                  <ul className="space-y-1.5 mb-3">
+                    {entries.map((u) => (
+                      <li key={u.id} className="flex items-center justify-between gap-3">
+                        <p className="text-xs text-gray-500 truncate min-w-0">{u.url}</p>
+                        <button
+                          onClick={() => handleDelete(u.id)}
+                          className="flex-shrink-0 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {/* Inline add-URL form for this site */}
+                  {addingTo[label] !== undefined ? (
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        type="url"
+                        value={addingTo[label]}
+                        onChange={(e) =>
+                          setAddingTo((prev) => ({ ...prev, [label]: e.target.value }))
+                        }
+                        placeholder="https://..."
+                        autoFocus
+                        className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      />
+                      <button
+                        onClick={() => handleAddToSite(label)}
+                        disabled={!addingTo[label]?.trim()}
+                        className="flex-shrink-0 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        Add
+                      </button>
+                      <button
+                        onClick={() =>
+                          setAddingTo((prev) => {
+                            const next = { ...prev };
+                            delete next[label];
+                            return next;
+                          })
+                        }
+                        className="flex-shrink-0 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        setAddingTo((prev) => ({ ...prev, [label]: "" }))
+                      }
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                    >
+                      + Add URL to {label}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

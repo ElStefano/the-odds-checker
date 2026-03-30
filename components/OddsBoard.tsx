@@ -42,7 +42,15 @@ export function OddsBoard() {
         urlsRes.ok ? urlsRes.json() : [],
       ]);
       setData(oddsJson);
-      setSites(urlsJson);
+      // Deduplicate by label — multiple URLs for the same site count as one
+      const seen = new Set<string>();
+      const unique = (urlsJson as SiteEntry[]).filter((s) => {
+        const key = s.label.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      setSites(unique);
     } finally {
       setLoading(false);
     }
