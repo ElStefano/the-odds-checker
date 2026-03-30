@@ -1,91 +1,61 @@
 "use client";
 
-import { OddsEntry } from "@/lib/data";
+import { SelectionGroup } from "./MatchCard";
 
-export interface GroupedOdds {
-  market: string;
-  selection: string;
-  siteOdds: { name: string; value: number; url: string }[]; // all sites, sorted best first
-}
+interface SiteEntry { id: string; url: string; label: string; }
 
-function normalizeMarket(market: string): string {
-  const m = market.toLowerCase().trim();
-  if (/match.?winner|matchresultat|1x2|full.?time.?result|fulltid|ft.?result|match result/.test(m)) return "match_winner";
-  if (/both.?teams.*(score|goal)|båda.?lagen|btts/.test(m)) return "btts";
-  return m;
-}
-
-function normalizeSelection(selection: string): string {
-  const s = selection.toLowerCase().trim();
-  if (/^(draw|oavgjort|remis|x|tie)$/.test(s)) return "draw";
-  if (/^(home|hemma|1)$/.test(s)) return "home";
-  if (/^(away|borta|2)$/.test(s)) return "away";
-  if (/^(yes|ja)$/.test(s)) return "yes";
-  if (/^(no|nej)$/.test(s)) return "no";
-  return s;
-}
-
-export function groupOdds(odds: OddsEntry[]): GroupedOdds[] {
-  const map = new Map<string, GroupedOdds>();
-  for (const o of odds) {
-    const key = `${normalizeMarket(o.market)}__${normalizeSelection(o.selection)}`;
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, {
-        market: o.market,
-        selection: o.selection,
-        siteOdds: [{ name: o.site, value: o.value, url: o.url }],
-      });
-    } else {
-      if (!existing.siteOdds.some((s) => s.name === o.site)) {
-        existing.siteOdds.push({ name: o.site, value: o.value, url: o.url });
-        existing.siteOdds.sort((a, b) => b.value - a.value);
-      }
-    }
+export function OddsRow({ group, allSites }: { group: SelectionGroup; allSites: SiteEntry[] }) {
+  // Group siteOdds by value so identical odds share a row
+  const valueMap = new Map<number, { name: string; url: string }[]>();
+  for (const s of group.siteOdds) {
+    const existing = valueMap.get(s.value) ?? [];
+    existing.push({ name: s.name, url: s.url });
+    valueMap.set(s.value, existing);
   }
-  return Array.from(map.values());
-}
+  const valueGroups = Array.from(valueMap.entries()).sort(([a], [b]) => b - a);
+  const bestValue = valueGroups[0]?.[0] ?? null;
 
-export function OddsRow({ odds }: { odds: GroupedOdds }) {
-  const best = odds.siteOdds[0]?.value;
-  const bestSites = odds.siteOdds.filter((s) => s.value === best);
-  const otherSites = odds.siteOdds.filter((s) => s.value !== best);
+  const presentNames = new Set(group.siteOdds.map((s) => s.name.toLowerCase()));
+  const missingSites = allSites.filter((s) => !presentNames.has(s.label.toLowerCase()));
 
   return (
     <div className="py-2.5 px-3 rounded-lg bg-gray-50">
-      <p className="text-xs text-gray-500 mb-1.5">
-        {odds.market} — <span className="font-medium text-gray-700">{odds.selection}</span>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+        {group.label}
       </p>
-      <div className="space-y-0.5">
-        {/* Best sites on one row */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {bestSites.map((s) => {
-              const siteRoot = (() => { try { return new URL(s.url).origin; } catch { return s.url; } })();
-              return (
-                <a
-                  key={s.name}
-                  href={siteRoot}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-semibold uppercase tracking-wide text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors px-3 py-1 rounded-full"
-                >
-                  {s.name}
-                </a>
-              );
-            })}
-          </div>
-          <span className="text-sm font-semibold tabular-nums text-gray-900">
-            {best.toFixed(2)}
-          </span>
-        </div>
-        {/* Other sites */}
-        {otherSites.map((s) => (
-          <div key={s.name} className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">{s.name}</span>
-            <span className="text-sm font-semibold tabular-nums text-gray-400">
-              {s.value.toFixed(2)}
-            </span>
+      <div className="space-y-1">
+        {valueGroups.map(([value, sitesInGroup]) => {
+          const isBest = value === bestValue;
+          return (
+            <div key={value} className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {sitesInGroup.map((s) => {
+                  const siteRoot = (() => { try { return new URL(s.url).origin; } catch { return s.url; } })();
+                  return isBest ? (
+                    <a
+                      key={s.name}
+                      href={siteRoot}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-semibold uppercase tracking-wide text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1 rounded-full transition-colors"
+                    >
+                      {s.name}
+                    </a>
+                  ) : (
+                    <span key={s.name} className="text-sm text-gray-500">{s.name}</span>
+                  );
+                })}
+              </div>
+              <span className={`text-sm font-semibold tabular-nums ${isBest ? "text-gray-900" : "text-gray-400"}`}>
+                {value.toFixed(2)}
+              </span>
+            </div>
+          );
+        })}
+        {missingSites.map((s) => (
+          <div key={s.id} className="flex items-center justify-between">
+            <span className="text-sm text-gray-400">{s.label}</span>
+            <span className="text-xs text-gray-300 italic">Can&apos;t find the market</span>
           </div>
         ))}
       </div>

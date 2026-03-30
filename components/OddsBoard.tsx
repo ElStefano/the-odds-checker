@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { OddsData } from "@/lib/data";
-import { MatchCard } from "./MatchCard";
+import { MatchCard, buildGroups } from "./MatchCard";
 
 interface SiteEntry {
   id: string;
@@ -62,6 +62,14 @@ export function OddsBoard() {
 
   const matches = (data?.matches ?? [])
     .filter((m) => /football|soccer|fotboll/i.test(m.sport))
+    .filter((m) => {
+      // Only show matches where all 3 outcomes (home/draw/away) have at least one site with odds
+      const parts = m.name.split(/ vs\.? /i);
+      const homeTeam = parts[0]?.trim() ?? "";
+      const awayTeam = parts[1]?.trim() ?? "";
+      const groups = buildGroups(m.odds, homeTeam, awayTeam);
+      return groups.every((g) => g.siteOdds.length > 0);
+    })
     .slice(0, 10);
   const lastUpdated = formatLastUpdated(data?.lastUpdated);
 
@@ -112,7 +120,7 @@ export function OddsBoard() {
       ) : (
         <div className="space-y-4">
           {matches.map((match, i) => (
-            <MatchCard key={match.id} match={match} rank={i + 1} />
+            <MatchCard key={match.id} match={match} rank={i + 1} sites={sites} />
           ))}
         </div>
       )}

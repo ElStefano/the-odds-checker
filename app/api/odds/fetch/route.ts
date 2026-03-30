@@ -147,7 +147,6 @@ Return a JSON object with this exact structure — nothing else, no markdown, ju
 }
 
 Rules:
-- Include at least 10 football matches — scrape as many as the pages provide
 - Sort matches so the most compelling / best-value odds come first
 - Within each match, list odds from best value (highest decimal) to lowest
 - Only include odds that are explicitly present in the scraped text — do not invent numbers
