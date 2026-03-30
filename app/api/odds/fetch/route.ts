@@ -21,13 +21,21 @@ const COOKIE_ACCEPT_SELECTORS = [
 ];
 
 // Run at most this many pages simultaneously inside the shared browser
-const CONCURRENCY = 3;
+const CONCURRENCY = 2;
 
 async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; content: string }[]> {
   // One shared browser process — dramatically lower RAM than one browser per site
   const browser = await chromium.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-extensions",
+      "--no-first-run",
+      "--disable-sync",
+    ],
   });
 
   const results: { entry: BettingUrl; content: string }[] = [];
@@ -46,6 +54,17 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
           locale: "sv-SE",
         });
         const page = await context.newPage();
+
+        // Block images, fonts and media — not needed for text extraction, saves memory and bandwidth
+        await page.route("**/*", (route) => {
+          const type = route.request().resourceType();
+          if (["image", "font", "media"].includes(type)) {
+            route.abort();
+          } else {
+            route.continue();
+          }
+        });
+
         await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 20000 });
 
         for (const selector of COOKIE_ACCEPT_SELECTORS) {
