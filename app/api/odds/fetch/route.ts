@@ -101,17 +101,10 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
   return results;
 }
 
-export async function POST() {
-  const session = await getSession();
-  if (!session.isAdmin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+// In-memory flag — safe because Railway runs a persistent Node process
+let fetchInProgress = false;
 
-  const urls = readUrls();
-  if (urls.length === 0) {
-    return NextResponse.json({ error: "No URLs configured" }, { status: 400 });
-  }
-
+async function runFetch(urls: BettingUrl[]) {
   // Scrape all pages using a single shared browser with limited concurrency
   const pageContents = await scrapeAll(urls);
 
@@ -192,13 +185,37 @@ Rules:
     const oddsData = JSON.parse(jsonString.trim());
     oddsData.lastUpdated = new Date().toISOString();
     writeOdds(oddsData);
-
-    return NextResponse.json(oddsData);
   } catch (err) {
     console.error("Claude fetch error:", err);
-    return NextResponse.json(
-      { error: "Failed to extract odds" },
-      { status: 500 }
-    );
   }
+}
+
+export async function POST() {
+  const session = await getSession();
+  if (!session.isAdmin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const urls = readUrls();
+  if (urls.length === 0) {
+    return NextResponse.json({ error: "No URLs configured" }, { status: 400 });
+  }
+
+  if (fetchInProgress) {
+    return NextResponse.json({ status: "already_running" }, { status: 409 });
+  }
+
+  // Respond immediately — client polls /api/odds until lastUpdated changes
+  fetchInProgress = true;
+  runFetch(urls).catch(console.error).finally(() => { fetchInProgress = false; });
+
+  return NextResponse.json({ status: "started" });
+}
+
+export async function GET() {
+  const session = await getSession();
+  if (!session.isAdmin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return NextResponse.json({ inProgress: fetchInProgress });
 }

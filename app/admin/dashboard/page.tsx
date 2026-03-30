@@ -122,14 +122,27 @@ export default function AdminDashboard() {
     setFetching(true);
     setFetchStatus(null);
     try {
-      const res = await fetch("/api/odds/fetch", { method: "POST" });
-      if (!res.ok) {
-        const data = await res.json();
+      const oddsRes = await fetch("/api/odds");
+      const before = oddsRes.ok ? (await oddsRes.json()).lastUpdated ?? null : null;
+
+      const startRes = await fetch("/api/odds/fetch", { method: "POST" });
+      if (!startRes.ok && startRes.status !== 409) {
+        const data = await startRes.json();
         setFetchStatus({ type: "error", message: data.error || "Fetch failed." });
         return;
       }
-      setFetchStatus({ type: "success", message: "Odds updated successfully." });
-      loadLastUpdated();
+      // Poll until lastUpdated changes (up to ~3 minutes)
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const res = await fetch("/api/odds");
+        const d = await res.json();
+        if (d.lastUpdated && d.lastUpdated !== before) {
+          setFetchStatus({ type: "success", message: "Odds updated successfully." });
+          loadLastUpdated();
+          return;
+        }
+      }
+      setFetchStatus({ type: "error", message: "Timed out waiting for new odds." });
     } catch {
       setFetchStatus({ type: "error", message: "Network error." });
     } finally {
