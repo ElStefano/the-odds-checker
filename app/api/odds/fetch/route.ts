@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { readUrls, writeOdds, BettingUrl, OddsEntry, Match } from "@/lib/data";
+import { readUrls, writeOdds, BettingUrl } from "@/lib/data";
 import Anthropic from "@anthropic-ai/sdk";
 import { chromium } from "playwright-core";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// Selectors that typically trigger "accept all cookies" on Swedish betting sites
 const COOKIE_ACCEPT_SELECTORS = [
+  // OneTrust (used by Betsson and many others)
   "#onetrust-accept-btn-handler",
   "#accept-recommended-btn-handler",
+  // Generic text-based
   'button:has-text("Acceptera alla cookies")',
   'button:has-text("Acceptera alla")',
   'button:has-text("Accept all cookies")',
@@ -31,6 +34,7 @@ async function fetchPageContent(url: string): Promise<string> {
     const page = await context.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
+    // Dismiss cookie consent if present
     for (const selector of COOKIE_ACCEPT_SELECTORS) {
       try {
         const btn = page.locator(selector).first();
@@ -39,14 +43,23 @@ async function fetchPageContent(url: string): Promise<string> {
           await page.waitForTimeout(2000);
           break;
         }
-      } catch { /* try next */ }
+      } catch {
+        // selector not found — try next
+      }
     }
 
+    // Wait for network to settle so odds data has been fetched by the SPA.
+    // Falls back to a fixed wait if the page never goes fully idle (e.g. live-score streams).
     try {
       await page.waitForLoadState("networkidle", { timeout: 15000 });
-    } catch { /* persistent connections — continue */ }
+    } catch {
+      // networkidle timed out — page has persistent connections (websockets etc.)
+    }
+    // Extra buffer for JS rendering after data arrives
     await page.waitForTimeout(2000);
 
+    // Extract text piercing Shadow DOM (needed for Stencil.js sites like Betsson)
+    // Falls back to innerText for simpler sites
     const text = await page.evaluate(() => {
       const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);
       function extractText(node: Node): string {
@@ -62,6 +75,7 @@ async function fetchPageContent(url: string): Promise<string> {
         return result;
       }
       const shadowText = extractText(document.body).replace(/\n{3,}/g, "\n\n").trim();
+      // Prefer shadow DOM result if substantially richer than innerText
       const innerText = document.body.innerText.trim();
       return shadowText.length > innerText.length ? shadowText : innerText;
     });
@@ -69,81 +83,6 @@ async function fetchPageContent(url: string): Promise<string> {
   } finally {
     await browser.close();
   }
-}
-
-interface RawEntry {
-  match: string;
-  sport: string;
-  date: string;
-  market: string;
-  selection: string;
-  value: number;
-}
-
-async function extractOddsFromSite(label: string, url: string, content: string): Promise<RawEntry[]> {
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
-    messages: [{
-      role: "user",
-      content: `The following text was scraped from the betting site "${label}" (${url}).
-Extract all match odds you can find.
-
-${content}
-
-Return ONLY a JSON array — no markdown, no other text:
-[
-  {
-    "match": "<Home Team vs Away Team>",
-    "sport": "<sport in English>",
-    "date": "<ISO 8601 datetime, or empty string>",
-    "market": "<market type e.g. Match Winner>",
-    "selection": "<selection exactly as shown on the page>",
-    "value": <decimal odds as a number>
-  }
-]
-
-Rules:
-- For every match, extract ALL Match Winner selections (home win, draw/X, away win) — do not skip any
-- Only include values explicitly visible in the text — never invent numbers
-- If no odds are visible at all, return []`,
-    }],
-  });
-
-  let raw = "";
-  for (const block of response.content) {
-    if (block.type === "text") raw = block.text;
-  }
-  try {
-    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-    return JSON.parse((jsonMatch ? jsonMatch[1] : raw).trim());
-  } catch {
-    return [];
-  }
-}
-
-function normalizeKey(name: string): string {
-  return name.toLowerCase().replace(/\s+vs\.?\s+|\s+-\s+/g, " vs ").trim();
-}
-
-async function generateCuratorNote(matches: Match[]): Promise<string> {
-  if (matches.length === 0) return "";
-  const summary = matches.slice(0, 8).map((m) => {
-    const top = [...m.odds].sort((a, b) => b.value - a.value).slice(0, 3);
-    return `${m.name}: ${top.map((o) => `${o.site} ${o.selection} @${o.value}`).join(", ")}`;
-  }).join("\n");
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 80,
-    messages: [{
-      role: "user",
-      content: `Based on these match odds, write ONE punchy sentence (max 20 words) tipping off the single most interesting value opportunity. Sound like a knowledgeable friend, not marketing copy.\n\n${summary}`,
-    }],
-  });
-  for (const block of response.content) {
-    if (block.type === "text") return block.text.trim();
-  }
-  return "";
 }
 
 export async function POST() {
@@ -157,7 +96,7 @@ export async function POST() {
     return NextResponse.json({ error: "No URLs configured" }, { status: 400 });
   }
 
-  // Step 1: scrape all pages in parallel
+  // Fetch all pages in parallel with a headless browser
   const pageContents: { entry: BettingUrl; content: string }[] = [];
   await Promise.all(
     urls.map(async (entry) => {
@@ -171,51 +110,84 @@ export async function POST() {
   );
 
   if (pageContents.length === 0) {
-    return NextResponse.json({ error: "Could not load any of the configured URLs." }, { status: 502 });
+    return NextResponse.json(
+      { error: "Could not load any of the configured URLs." },
+      { status: 502 }
+    );
   }
 
-  // Step 2: extract odds per site in parallel — each Claude call is focused on one site
-  const extractions = await Promise.all(
-    pageContents.map(({ entry, content }) =>
-      extractOddsFromSite(entry.label, entry.url, content).catch((err) => {
-        console.error(`Extraction failed for ${entry.label}:`, err);
-        return [] as RawEntry[];
-      })
+  const pagesBlock = pageContents
+    .map(
+      ({ entry, content }) =>
+        `=== ${entry.label} (${entry.url}) ===\n${content}`
     )
-  );
+    .join("\n\n");
 
-  // Step 3: merge entries by match name
-  const matchMap = new Map<string, { name: string; sport: string; date: string; odds: OddsEntry[] }>();
-  for (let i = 0; i < pageContents.length; i++) {
-    const { entry } = pageContents[i];
-    for (const item of extractions[i]) {
-      if (!item.match || typeof item.value !== "number") continue;
-      const key = normalizeKey(item.match);
-      if (!matchMap.has(key)) {
-        matchMap.set(key, { name: item.match, sport: item.sport || "", date: item.date || "", odds: [] });
-      }
-      matchMap.get(key)!.odds.push({
-        site: entry.label,
-        market: item.market || "Match Winner",
-        selection: item.selection,
-        value: item.value,
-        url: entry.url,
-      });
+  const prompt = `You are an extremely well-read friend who has spent years studying betting markets across every sport. You have a gift for cutting through the noise and curating exactly what's worth paying attention to.
+
+Below is the raw text content scraped directly from the following betting site pages. Extract all available match odds from this content.
+
+${pagesBlock}
+
+Return a JSON object with this exact structure — nothing else, no markdown, just raw JSON:
+
+{
+  "lastUpdated": "<ISO 8601 timestamp>",
+  "curatorNote": "<One punchy sentence about the single most interesting opportunity you've spotted>",
+  "matches": [
+    {
+      "id": "<slug-style-id>",
+      "name": "<Team A vs Team B>",
+      "sport": "<sport name>",
+      "date": "<ISO 8601 date or datetime if visible, else empty string>",
+      "odds": [
+        {
+          "site": "<betting site label>",
+          "market": "<market type e.g. Match Winner, Both Teams to Score, Over 2.5 Goals>",
+          "selection": "<selection name>",
+          "value": <decimal odds as number>,
+          "url": "<source URL>"
+        }
+      ]
     }
+  ]
+}
+
+Rules:
+- Sort matches so the most compelling / best-value odds come first
+- Within each match, list odds from best value (highest decimal) to lowest
+- Only include odds that are explicitly present in the scraped text — do not invent numbers
+- For each match, extract ALL three Match Winner outcomes (home win, draw, away win) from EVERY site that lists that match — never skip a site's home-win odds just because you already have that outcome from another site
+- The curatorNote should sound like a knowledgeable friend tipping you off, not a marketing line`;
+
+  try {
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8096,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    let rawText = "";
+    for (const block of response.content) {
+      if (block.type === "text") {
+        rawText = block.text;
+      }
+    }
+
+    // Strip markdown code fences if present
+    const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const jsonString = jsonMatch ? jsonMatch[1] : rawText;
+
+    const oddsData = JSON.parse(jsonString.trim());
+    oddsData.lastUpdated = new Date().toISOString();
+    writeOdds(oddsData);
+
+    return NextResponse.json(oddsData);
+  } catch (err) {
+    console.error("Claude fetch error:", err);
+    return NextResponse.json(
+      { error: "Failed to extract odds" },
+      { status: 500 }
+    );
   }
-
-  const matches: Match[] = Array.from(matchMap.values()).map((m) => ({
-    id: normalizeKey(m.name).replace(/[^a-z0-9]+/g, "-"),
-    name: m.name,
-    sport: m.sport,
-    date: m.date,
-    odds: m.odds,
-  }));
-
-  // Step 4: generate curator note
-  const curatorNote = await generateCuratorNote(matches).catch(() => "");
-
-  const oddsData = { lastUpdated: new Date().toISOString(), curatorNote, matches };
-  writeOdds(oddsData);
-  return NextResponse.json(oddsData);
 }
