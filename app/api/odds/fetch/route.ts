@@ -20,8 +20,8 @@ const COOKIE_ACCEPT_SELECTORS = [
   'button:has-text("Tillåt alla")',
 ];
 
-// Run at most this many pages simultaneously inside the shared browser
-const CONCURRENCY = 2;
+// Sequential scraping — one page at a time to stay within Railway memory limits
+const CONCURRENCY = 1;
 
 async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; content: string }[]> {
   // One shared browser process — dramatically lower RAM than one browser per site
@@ -35,6 +35,10 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
       "--disable-extensions",
       "--no-first-run",
       "--disable-sync",
+      "--disable-background-networking",
+      "--disable-default-apps",
+      "--mute-audio",
+      "--no-zygote",
     ],
   });
 
