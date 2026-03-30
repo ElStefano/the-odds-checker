@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { readUrls, writeOdds, BettingUrl } from "@/lib/data";
 import Anthropic from "@anthropic-ai/sdk";
-import { chromium } from "playwright-core";
+import { chromium, Browser } from "playwright-core";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Simple in-memory cache with a 5-minute TTL
+const CACHE_TTL_MS = 5 * 60 * 1000;
+let oddsCache: { data: unknown; fetchedAt: number } | null = null;
 
 // Selectors that typically trigger "accept all cookies" on Swedish betting sites
 const COOKIE_ACCEPT_SELECTORS = [
@@ -20,19 +24,15 @@ const COOKIE_ACCEPT_SELECTORS = [
   'button:has-text("Tillåt alla")',
 ];
 
-async function fetchPageContent(url: string): Promise<string> {
-  const browser = await chromium.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+async function fetchPageContent(browser: Browser, url: string): Promise<string> {
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    locale: "sv-SE",
   });
+  const page = await context.newPage();
   try {
-    const context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-      locale: "sv-SE",
-    });
-    const page = await context.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
 
     // Dismiss cookie consent if present
     for (const selector of COOKIE_ACCEPT_SELECTORS) {
@@ -56,7 +56,7 @@ async function fetchPageContent(url: string): Promise<string> {
       // networkidle timed out — page has persistent connections (websockets etc.)
     }
     // Extra buffer for JS rendering after data arrives
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1000);
 
     // Extract text piercing Shadow DOM (needed for Stencil.js sites like Betsson)
     // Falls back to innerText for simpler sites
@@ -81,7 +81,8 @@ async function fetchPageContent(url: string): Promise<string> {
     });
     return text.slice(0, 20000);
   } finally {
-    await browser.close();
+    await page.close();
+    await context.close();
   }
 }
 
@@ -91,23 +92,39 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Return cached result if it is still fresh (< 5 minutes old)
+  if (oddsCache && Date.now() - oddsCache.fetchedAt < CACHE_TTL_MS) {
+    console.log("Returning cached odds (age: " + Math.round((Date.now() - oddsCache.fetchedAt) / 1000) + "s)");
+    return NextResponse.json(oddsCache.data);
+  }
+
   const urls = readUrls();
   if (urls.length === 0) {
     return NextResponse.json({ error: "No URLs configured" }, { status: 400 });
   }
 
-  // Fetch all pages in parallel with a headless browser
+  // Launch a single browser instance shared across all URL fetches
+  const browser = await chromium.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+  });
+
+  // Fetch all pages in parallel, reusing the single browser
   const pageContents: { entry: BettingUrl; content: string }[] = [];
-  await Promise.all(
-    urls.map(async (entry) => {
-      try {
-        const content = await fetchPageContent(entry.url);
-        pageContents.push({ entry, content });
-      } catch (err) {
-        console.error(`Failed to fetch ${entry.url}:`, err);
-      }
-    })
-  );
+  try {
+    await Promise.all(
+      urls.map(async (entry) => {
+        try {
+          const content = await fetchPageContent(browser, entry.url);
+          pageContents.push({ entry, content });
+        } catch (err) {
+          console.error(`Failed to fetch ${entry.url}:`, err);
+        }
+      })
+    );
+  } finally {
+    await browser.close();
+  }
 
   if (pageContents.length === 0) {
     return NextResponse.json(
@@ -186,6 +203,9 @@ Rules:
     const oddsData = JSON.parse(jsonString.trim());
     oddsData.lastUpdated = new Date().toISOString();
     writeOdds(oddsData);
+
+    // Populate cache so repeated requests within 5 minutes are served instantly
+    oddsCache = { data: oddsData, fetchedAt: Date.now() };
 
     return NextResponse.json(oddsData);
   } catch (err) {
