@@ -11,16 +11,11 @@ const COOKIE_ACCEPT_SELECTORS = [
   // OneTrust (used by Betsson and many others)
   "#onetrust-accept-btn-handler",
   "#accept-recommended-btn-handler",
-  // Bet365
-  ".ccm-CookieConsentPopup_Accept",
-  'button[data-test="accept-all-cookies"]',
-  // Generic text-based (English + Swedish)
-  'button:has-text("Accept All Cookies")',
-  'button:has-text("Accept all cookies")',
-  'button:has-text("Accept All")',
-  'button:has-text("Accept all")',
+  // Generic text-based
   'button:has-text("Acceptera alla cookies")',
   'button:has-text("Acceptera alla")',
+  'button:has-text("Accept all cookies")',
+  'button:has-text("Accept all")',
   'button:has-text("Godkänn alla")',
   'button:has-text("Tillåt alla")',
 ];
@@ -28,29 +23,15 @@ const COOKIE_ACCEPT_SELECTORS = [
 async function fetchPageContent(url: string): Promise<string> {
   const browser = await chromium.launch({
     headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      // Suppress the automation flag that sites use for bot detection
-      "--disable-blink-features=AutomationControlled",
-    ],
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
   try {
     const context = await browser.newContext({
       userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
       locale: "sv-SE",
-      // Mimic a real viewport
-      viewport: { width: 1280, height: 800 },
     });
     const page = await context.newPage();
-
-    // Remove the webdriver property that headless Chrome exposes — sites check this
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-    });
-
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
     // Dismiss cookie consent if present
@@ -67,9 +48,8 @@ async function fetchPageContent(url: string): Promise<string> {
       }
     }
 
-    // Bet365 and similar heavy SPAs need longer to render odds via WebSocket
-    const isBet365 = url.includes("bet365");
-    await page.waitForTimeout(isBet365 ? 10000 : 6000);
+    // Give JS-heavy SPAs time to render odds after consent
+    await page.waitForTimeout(6000);
 
     // Extract text piercing Shadow DOM (needed for Stencil.js sites like Betsson)
     // Falls back to innerText for simpler sites
