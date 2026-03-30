@@ -75,7 +75,8 @@ export function OddsBoard() {
       const homeTeam = parts[0]?.trim() ?? "";
       const awayTeam = parts[1]?.trim() ?? "";
       const groups = buildGroups(m.odds, homeTeam, awayTeam);
-      return groups.every((g) => g.siteOdds.length > 0);
+      // Home and away must have odds; draw is optional (hockey etc. have no draw market)
+      return groups[0].siteOdds.length > 0 && groups[2].siteOdds.length > 0;
     })
     .slice(0, 10);
   const lastUpdated = formatLastUpdated(data?.lastUpdated);

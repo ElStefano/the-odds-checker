@@ -115,7 +115,7 @@ export function MatchCard({ match, rank, sites }: { match: Match; rank: number; 
         </div>
       </div>
       <div className="px-4 py-3 space-y-2">
-        {groups.map((g) => (
+        {groups.filter((g) => g.siteOdds.length > 0).map((g) => (
           <OddsRow key={g.label} group={g} allSites={sites} />
         ))}
       </div>
