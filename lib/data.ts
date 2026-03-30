@@ -1,6 +1,7 @@
 import fs from "fs";
+import path from "path";
 
-const DATA_DIR = "/app/data";
+const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 const URLS_FILE = `${DATA_DIR}/urls.json`;
 const ODDS_FILE = `${DATA_DIR}/odds.json`;
 

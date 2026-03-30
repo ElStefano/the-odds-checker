@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
+ENV DATA_DIR=/app/data
+
 WORKDIR /app
 
 COPY package*.json ./
