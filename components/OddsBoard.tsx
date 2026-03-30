@@ -76,7 +76,7 @@ export function OddsBoard() {
         return;
       }
       // Poll /api/odds until lastUpdated changes (up to ~3 minutes)
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 100; i++) {
         await new Promise((r) => setTimeout(r, 3000));
         const res = await fetch("/api/odds");
         const d = await res.json();
@@ -86,7 +86,7 @@ export function OddsBoard() {
           return;
         }
       }
-      setFetchStatus({ type: "error", message: "Timed out waiting for new odds." });
+      setFetchStatus({ type: "error", message: "Timed out waiting for new odds (5 min)." });
     } catch {
       setFetchStatus({ type: "error", message: "Network error." });
     } finally {
