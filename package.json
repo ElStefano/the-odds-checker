@@ -6,8 +6,7 @@
     "dev": "next dev -p 3002",
     "build": "next build",
     "start": "next start -p ${PORT:-3000}",
-    "postinstall": "npx playwright install chromium --with-deps",
-    "lint": "eslint"
+"lint": "eslint"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
