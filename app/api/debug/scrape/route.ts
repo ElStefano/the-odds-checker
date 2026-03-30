@@ -48,7 +48,12 @@ export async function POST(req: NextRequest) {
       } catch { /* try next */ }
     }
 
-    await page.waitForTimeout(6000);
+    try {
+      await page.waitForLoadState("networkidle", { timeout: 15000 });
+    } catch {
+      // networkidle timed out — persistent connections
+    }
+    await page.waitForTimeout(2000);
 
     const text = await page.evaluate(() => {
       const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);

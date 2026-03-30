@@ -48,8 +48,15 @@ async function fetchPageContent(url: string): Promise<string> {
       }
     }
 
-    // Give JS-heavy SPAs time to render odds after consent
-    await page.waitForTimeout(6000);
+    // Wait for network to settle so odds data has been fetched by the SPA.
+    // Falls back to a fixed wait if the page never goes fully idle (e.g. live-score streams).
+    try {
+      await page.waitForLoadState("networkidle", { timeout: 15000 });
+    } catch {
+      // networkidle timed out — page has persistent connections (websockets etc.)
+    }
+    // Extra buffer for JS rendering after data arrives
+    await page.waitForTimeout(2000);
 
     // Extract text piercing Shadow DOM (needed for Stencil.js sites like Betsson)
     // Falls back to innerText for simpler sites
