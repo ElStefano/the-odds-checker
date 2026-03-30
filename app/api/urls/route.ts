@@ -35,7 +35,12 @@ export async function POST(req: NextRequest) {
     addedAt: new Date().toISOString(),
   };
   urls.push(entry);
-  writeUrls(urls);
+  try {
+    writeUrls(urls);
+  } catch (err) {
+    console.error("writeUrls failed:", err);
+    return NextResponse.json({ error: "Failed to save URL. Check that the data volume is mounted." }, { status: 500 });
+  }
 
   return NextResponse.json(entry, { status: 201 });
 }

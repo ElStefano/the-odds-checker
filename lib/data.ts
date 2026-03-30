@@ -44,6 +44,7 @@ export function readUrls(): BettingUrl[] {
 }
 
 export function writeUrls(urls: BettingUrl[]): void {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(URLS_FILE, JSON.stringify(urls, null, 2));
 }
 
@@ -57,5 +58,6 @@ export function readOdds(): OddsData {
 }
 
 export function writeOdds(data: OddsData): void {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(ODDS_FILE, JSON.stringify(data, null, 2));
 }
