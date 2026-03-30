@@ -85,7 +85,17 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
         try {
           await page.waitForLoadState("networkidle", { timeout: 10000 });
         } catch { /* persistent connections — continue */ }
-        await page.waitForTimeout(1500);
+
+        // Wait until at least 5 decimal odds values appear in the page text.
+        // This handles sites that load odds via API after the page settles.
+        try {
+          await page.waitForFunction(
+            () => (document.body.innerText.match(/\b\d+\.\d{2}\b/g) ?? []).length >= 5,
+            { timeout: 12000 }
+          );
+        } catch { /* odds didn't appear — proceed with whatever loaded */ }
+
+        await page.waitForTimeout(500);
 
         const text = await page.evaluate(() => {
           const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);

@@ -50,10 +50,16 @@ export async function POST(req: NextRequest) {
 
     try {
       await page.waitForLoadState("networkidle", { timeout: 10000 });
-    } catch {
-      // networkidle timed out — persistent connections
-    }
-    await page.waitForTimeout(1500);
+    } catch { /* persistent connections — continue */ }
+
+    try {
+      await page.waitForFunction(
+        () => (document.body.innerText.match(/\b\d+\.\d{2}\b/g) ?? []).length >= 5,
+        { timeout: 12000 }
+      );
+    } catch { /* odds didn't appear — proceed */ }
+
+    await page.waitForTimeout(500);
 
     const text = await page.evaluate(() => {
       const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);
