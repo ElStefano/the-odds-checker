@@ -43,7 +43,7 @@ export function categorizeSel(selection: string, homeTeam: string, awayTeam: str
   if (/^2[\s(]/.test(s)) return "away";
 
   // Common draw synonyms
-  if (/^(draw|oavgjort|remis|tie|unentschieden|egalite|unentsch)$/.test(s)) return "draw";
+  if (/^(draw|oavgjort|remis|kryss|tie|unentschieden|egalite|unentsch)$/.test(s)) return "draw";
 
   // Common home/away words
   if (/^(home|hemma)$/.test(s)) return "home";
