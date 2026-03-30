@@ -150,6 +150,7 @@ Rules:
 - Sort matches so the most compelling / best-value odds come first
 - Within each match, list odds from best value (highest decimal) to lowest
 - Only include odds that are explicitly present in the scraped text — do not invent numbers
+- For each match, extract ALL three Match Winner outcomes (home win, draw, away win) from EVERY site that lists that match — never skip a site's home-win odds just because you already have that outcome from another site
 - The curatorNote should sound like a knowledgeable friend tipping you off, not a marketing line`;
 
   try {
