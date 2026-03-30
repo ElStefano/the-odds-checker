@@ -123,9 +123,13 @@ export async function POST() {
     )
     .join("\n\n");
 
+  const siteLabels = pageContents.map(({ entry }) => entry.label).join(", ");
+
   const prompt = `You are an extremely well-read friend who has spent years studying betting markets across every sport. You have a gift for cutting through the noise and curating exactly what's worth paying attention to.
 
-Below is the raw text content scraped directly from the following betting site pages. Extract all available match odds from this content.
+Below is the raw text content scraped from these betting sites: ${siteLabels}.
+Each site's content is separated by a === SITE_LABEL (URL) === header.
+You MUST read through every section and extract odds from ALL of them — do not stop after the first few sites.
 
 ${pagesBlock}
 
@@ -158,6 +162,7 @@ Rules:
 - Within each match, list odds from best value (highest decimal) to lowest
 - Only include odds that are explicitly present in the scraped text — do not invent numbers
 - For each match, extract ALL three Match Winner outcomes (home win, draw, away win) from EVERY site that lists that match — never skip a site's home-win odds just because you already have that outcome from another site
+- The "site" field must use the exact label from the === header of the section the odds were found in (e.g. "Betsson", "Unibet") — never omit a site
 - The curatorNote should sound like a knowledgeable friend tipping you off, not a marketing line`;
 
   try {
