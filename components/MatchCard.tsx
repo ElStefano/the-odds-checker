@@ -94,6 +94,10 @@ export function MatchCard({ match, rank, sites }: { match: Match; rank: number; 
   const homeTeam = parts[0]?.trim() ?? "";
   const awayTeam = parts[1]?.trim() ?? "";
   const groups = buildGroups(match.odds, homeTeam, awayTeam);
+  // Only sites that provided *some* odds for this match should show "Can't find market"
+  // Sites that simply don't carry the sport are silently omitted
+  const sitesWithMatchData = new Set(match.odds.map((o) => o.site.toLowerCase()));
+  const sitesForMatch = sites.filter((s) => sitesWithMatchData.has(s.label.toLowerCase()));
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -116,7 +120,7 @@ export function MatchCard({ match, rank, sites }: { match: Match; rank: number; 
       </div>
       <div className="px-4 py-3 space-y-2">
         {groups.filter((g) => g.siteOdds.length > 0).map((g) => (
-          <OddsRow key={g.label} group={g} allSites={sites} />
+          <OddsRow key={g.label} group={g} allSites={sitesForMatch} />
         ))}
       </div>
     </div>
