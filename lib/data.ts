@@ -1,9 +1,8 @@
 import fs from "fs";
-import path from "path";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const URLS_FILE = path.join(DATA_DIR, "urls.json");
-const ODDS_FILE = path.join(DATA_DIR, "odds.json");
+const DATA_DIR = "/app/data";
+const URLS_FILE = `${DATA_DIR}/urls.json`;
+const ODDS_FILE = `${DATA_DIR}/odds.json`;
 
 export interface BettingUrl {
   id: string;
