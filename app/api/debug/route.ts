@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import fs from "fs";
-import path from "path";
 
 export async function GET() {
   const session = await getSession();
@@ -9,8 +8,8 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const dataDir = path.join(process.cwd(), "data");
-  const urlsFile = path.join(dataDir, "urls.json");
+  const dataDir = "/app/data";
+  const urlsFile = `${dataDir}/urls.json`;
 
   let dirExists = false;
   let fileExists = false;
@@ -22,8 +21,8 @@ export async function GET() {
   try { fileExists = fs.existsSync(urlsFile); } catch {}
   try {
     fs.mkdirSync(dataDir, { recursive: true });
-    fs.writeFileSync(path.join(dataDir, ".write-test"), "ok");
-    fs.unlinkSync(path.join(dataDir, ".write-test"));
+    fs.writeFileSync(`${dataDir}/.write-test`, "ok");
+    fs.unlinkSync(`${dataDir}/.write-test`);
     writable = true;
   } catch (e) {
     writeError = String(e);
