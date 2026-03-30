@@ -21,7 +21,10 @@ const COOKIE_ACCEPT_SELECTORS = [
 ];
 
 async function fetchPageContent(url: string): Promise<string> {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+  });
   try {
     const context = await browser.newContext({
       userAgent:
