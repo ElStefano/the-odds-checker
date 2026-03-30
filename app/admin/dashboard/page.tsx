@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, FormEvent } from "react";
+import { useState, useEffect, useCallback, useRef, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { BettingUrl } from "@/lib/data";
 
@@ -16,6 +16,7 @@ export default function AdminDashboard() {
     message: string;
   } | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Per-site inline "add URL" form state: label -> url input value
   const [addingTo, setAddingTo] = useState<Record<string, string>>({});
   // Scrape preview state: url -> result or "loading"
@@ -53,6 +54,12 @@ export default function AdminDashboard() {
     loadUrls();
     loadLastUpdated();
   }, [loadUrls, loadLastUpdated]);
+
+  // Clean up polling interval on unmount
+  useEffect(() => {
+    return () => stopPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function postUrl(url: string, label: string): Promise<string | null> {
     const res = await fetch("/api/urls", {
@@ -118,21 +125,51 @@ export default function AdminDashboard() {
     loadUrls();
   }
 
+  function stopPolling() {
+    if (pollIntervalRef.current !== null) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch("/api/odds/status");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status !== "fetching") {
+          stopPolling();
+          setFetching(false);
+          if (data.error) {
+            setFetchStatus({ type: "error", message: data.error });
+          } else {
+            setFetchStatus({ type: "success", message: "Odds updated successfully." });
+            loadLastUpdated();
+          }
+        }
+      } catch {
+        // Network hiccup — keep polling
+      }
+    }, 1500);
+  }
+
   async function handleFetch() {
     setFetching(true);
     setFetchStatus(null);
     try {
       const res = await fetch("/api/odds/fetch", { method: "POST" });
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json();
         setFetchStatus({ type: "error", message: data.error || "Fetch failed." });
+        setFetching(false);
         return;
       }
-      setFetchStatus({ type: "success", message: "Odds updated successfully." });
-      loadLastUpdated();
+      // 202 Accepted — background job started; poll for completion
+      startPolling();
     } catch {
       setFetchStatus({ type: "error", message: "Network error." });
-    } finally {
       setFetching(false);
     }
   }
