@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       locale: "sv-SE",
     });
     const page = await context.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
 
     let cookieDismissed = false;
     for (const selector of COOKIE_ACCEPT_SELECTORS) {
@@ -49,11 +49,11 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      await page.waitForLoadState("networkidle", { timeout: 15000 });
+      await page.waitForLoadState("networkidle", { timeout: 10000 });
     } catch {
       // networkidle timed out — persistent connections
     }
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1500);
 
     const text = await page.evaluate(() => {
       const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);

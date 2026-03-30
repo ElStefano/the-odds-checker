@@ -20,69 +20,85 @@ const COOKIE_ACCEPT_SELECTORS = [
   'button:has-text("Tillåt alla")',
 ];
 
-async function fetchPageContent(url: string): Promise<string> {
+// Run at most this many pages simultaneously inside the shared browser
+const CONCURRENCY = 3;
+
+async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; content: string }[]> {
+  // One shared browser process — dramatically lower RAM than one browser per site
   const browser = await chromium.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
-  try {
-    const context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-      locale: "sv-SE",
-    });
-    const page = await context.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-    // Dismiss cookie consent if present
-    for (const selector of COOKIE_ACCEPT_SELECTORS) {
+  const results: { entry: BettingUrl; content: string }[] = [];
+
+  // Simple concurrency limiter: at most CONCURRENCY pages open at once
+  const queue = [...entries];
+  async function worker() {
+    while (queue.length > 0) {
+      const entry = queue.shift();
+      if (!entry) break;
+      let context;
       try {
-        const btn = page.locator(selector).first();
-        if (await btn.isVisible({ timeout: 3000 })) {
-          await btn.click();
-          await page.waitForTimeout(2000);
-          break;
+        context = await browser.newContext({
+          userAgent:
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          locale: "sv-SE",
+        });
+        const page = await context.newPage();
+        await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 20000 });
+
+        for (const selector of COOKIE_ACCEPT_SELECTORS) {
+          try {
+            const btn = page.locator(selector).first();
+            if (await btn.isVisible({ timeout: 2000 })) {
+              await btn.click();
+              await page.waitForTimeout(1500);
+              break;
+            }
+          } catch { /* try next */ }
         }
-      } catch {
-        // selector not found — try next
+
+        try {
+          await page.waitForLoadState("networkidle", { timeout: 10000 });
+        } catch { /* persistent connections — continue */ }
+        await page.waitForTimeout(1500);
+
+        const text = await page.evaluate(() => {
+          const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);
+          function extractText(node: Node): string {
+            if (node.nodeType === Node.ELEMENT_NODE && SKIP_TAGS.has((node as Element).tagName)) return "";
+            let result = "";
+            if (node.nodeType === Node.TEXT_NODE) {
+              const t = node.textContent?.trim();
+              if (t) result += t + "\n";
+            }
+            const shadowRoot = (node as Element).shadowRoot;
+            if (shadowRoot) result += extractText(shadowRoot);
+            for (const child of node.childNodes) result += extractText(child);
+            return result;
+          }
+          const shadowText = extractText(document.body).replace(/\n{3,}/g, "\n\n").trim();
+          const innerText = document.body.innerText.trim();
+          return shadowText.length > innerText.length ? shadowText : innerText;
+        });
+
+        results.push({ entry, content: text.slice(0, 20000) });
+      } catch (err) {
+        console.error(`Failed to fetch ${entry.url}:`, err);
+      } finally {
+        await context?.close();
       }
     }
+  }
 
-    // Wait for network to settle so odds data has been fetched by the SPA.
-    // Falls back to a fixed wait if the page never goes fully idle (e.g. live-score streams).
-    try {
-      await page.waitForLoadState("networkidle", { timeout: 15000 });
-    } catch {
-      // networkidle timed out — page has persistent connections (websockets etc.)
-    }
-    // Extra buffer for JS rendering after data arrives
-    await page.waitForTimeout(2000);
-
-    // Extract text piercing Shadow DOM (needed for Stencil.js sites like Betsson)
-    // Falls back to innerText for simpler sites
-    const text = await page.evaluate(() => {
-      const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);
-      function extractText(node: Node): string {
-        if (node.nodeType === Node.ELEMENT_NODE && SKIP_TAGS.has((node as Element).tagName)) return "";
-        let result = "";
-        if (node.nodeType === Node.TEXT_NODE) {
-          const t = node.textContent?.trim();
-          if (t) result += t + "\n";
-        }
-        const shadowRoot = (node as Element).shadowRoot;
-        if (shadowRoot) result += extractText(shadowRoot);
-        for (const child of node.childNodes) result += extractText(child);
-        return result;
-      }
-      const shadowText = extractText(document.body).replace(/\n{3,}/g, "\n\n").trim();
-      // Prefer shadow DOM result if substantially richer than innerText
-      const innerText = document.body.innerText.trim();
-      return shadowText.length > innerText.length ? shadowText : innerText;
-    });
-    return text.slice(0, 20000);
+  try {
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
   } finally {
     await browser.close();
   }
+
+  return results;
 }
 
 export async function POST() {
@@ -96,18 +112,8 @@ export async function POST() {
     return NextResponse.json({ error: "No URLs configured" }, { status: 400 });
   }
 
-  // Fetch all pages in parallel with a headless browser
-  const pageContents: { entry: BettingUrl; content: string }[] = [];
-  await Promise.all(
-    urls.map(async (entry) => {
-      try {
-        const content = await fetchPageContent(entry.url);
-        pageContents.push({ entry, content });
-      } catch (err) {
-        console.error(`Failed to fetch ${entry.url}:`, err);
-      }
-    })
-  );
+  // Scrape all pages using a single shared browser with limited concurrency
+  const pageContents = await scrapeAll(urls);
 
   if (pageContents.length === 0) {
     return NextResponse.json(
