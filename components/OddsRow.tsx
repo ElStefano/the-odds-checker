@@ -1,10 +1,12 @@
 "use client";
 
 import { SelectionGroup } from "./MatchCard";
+import { useLang } from "@/lib/i18n";
 
 interface SiteEntry { id: string; url: string; label: string; }
 
 export function OddsRow({ group, allSites }: { group: SelectionGroup; allSites: SiteEntry[] }) {
+  const { t } = useLang();
   // Group siteOdds by value so identical odds share a row
   const valueMap = new Map<number, { name: string; url: string }[]>();
   for (const s of group.siteOdds) {
@@ -55,7 +57,7 @@ export function OddsRow({ group, allSites }: { group: SelectionGroup; allSites: 
         {missingSites.map((s) => (
           <div key={s.id} className="flex items-center justify-between">
             <span className="text-sm text-gray-400">{s.label}</span>
-            <span className="text-xs text-gray-300 italic">Can&apos;t find the market</span>
+            <span className="text-xs text-gray-300 italic">{t.cantFindMarket}</span>
           </div>
         ))}
       </div>

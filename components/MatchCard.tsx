@@ -2,6 +2,7 @@
 
 import { Match, OddsEntry } from "@/lib/data";
 import { OddsRow } from "./OddsRow";
+import { useLang } from "@/lib/i18n";
 
 interface SiteEntry { id: string; url: string; label: string; }
 
@@ -10,7 +11,7 @@ export interface SelectionGroup {
   siteOdds: { name: string; value: number; url: string }[];
 }
 
-function formatDate(dateStr: string) {
+function formatDate(dateStr: string, locale: string) {
   if (!dateStr) return null;
   try {
     // Date-only strings (YYYY-MM-DD) are parsed as UTC by the spec, which shifts
@@ -21,7 +22,7 @@ function formatDate(dateStr: string) {
       : dateStr;
     const date = new Date(normalized);
     const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(dateStr);
-    return new Intl.DateTimeFormat("en-GB", {
+    return new Intl.DateTimeFormat(locale, {
       weekday: "short",
       day: "numeric",
       month: "short",
@@ -72,7 +73,7 @@ function bestPerSite(entries: { name: string; value: number; url: string }[]) {
   return Array.from(map.values()).sort((a, b) => b.value - a.value);
 }
 
-export function buildGroups(odds: OddsEntry[], homeTeam: string, awayTeam: string): SelectionGroup[] {
+export function buildGroups(odds: OddsEntry[], homeTeam: string, awayTeam: string, drawLabel = "Draw"): SelectionGroup[] {
   const mw = odds.filter(o => isMatchWinner(o.market));
   const src = mw.length > 0 ? mw : odds;
 
@@ -90,17 +91,18 @@ export function buildGroups(odds: OddsEntry[], homeTeam: string, awayTeam: strin
 
   return [
     { label: homeTeam || "Team 1", siteOdds: bestPerSite(home) },
-    { label: "Draw", siteOdds: bestPerSite(draw) },
+    { label: drawLabel, siteOdds: bestPerSite(draw) },
     { label: awayTeam || "Team 2", siteOdds: bestPerSite(away) },
   ];
 }
 
 export function MatchCard({ match, rank, sites }: { match: Match; rank: number; sites: SiteEntry[] }) {
-  const formattedDate = formatDate(match.date);
+  const { t } = useLang();
+  const formattedDate = formatDate(match.date, t.dateLocale);
   const parts = match.name.split(/ vs\.? /i);
   const homeTeam = parts[0]?.trim() ?? "";
   const awayTeam = parts[1]?.trim() ?? "";
-  const groups = buildGroups(match.odds, homeTeam, awayTeam);
+  const groups = buildGroups(match.odds, homeTeam, awayTeam, t.draw);
   // Only sites that provided *some* odds for this match should show "Can't find market"
   // Sites that simply don't carry the sport are silently omitted
   const sitesWithMatchData = new Set(match.odds.map((o) => o.site.toLowerCase()));
