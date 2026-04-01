@@ -20,8 +20,8 @@ const COOKIE_ACCEPT_SELECTORS = [
   'button:has-text("Tillåt alla")',
 ];
 
-// Two pages at a time — resource blocking keeps memory manageable on Railway
-const CONCURRENCY = 2;
+// Sequential — safest on Railway memory; hard per-site cap keeps total time bounded
+const CONCURRENCY = 1;
 // Hard cap per site — prevents any single page from blocking the queue
 const SITE_TIMEOUT_MS = 20_000;
 
@@ -98,6 +98,7 @@ async function scrapeSite(browser: Browser, entry: BettingUrl): Promise<string> 
 }
 
 async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; content: string }[]> {
+  console.log("[scrape] launching browser");
   const browser = await chromium.launch({
     headless: true,
     args: [
@@ -115,6 +116,7 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
     ],
   });
 
+  console.log("[scrape] browser launched");
   const results: { entry: BettingUrl; content: string }[] = [];
   const queue = [...entries];
 
@@ -214,11 +216,16 @@ Rules:
 - The curatorNote should sound like a knowledgeable friend tipping you off, not a marketing line`;
 
   try {
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 8096,
-      messages: [{ role: "user", content: prompt }],
-    });
+    console.log("[claude] sending request, prompt length:", prompt.length);
+    const response = await client.messages.create(
+      {
+        model: "claude-sonnet-4-6",
+        max_tokens: 4000,
+        messages: [{ role: "user", content: prompt }],
+      },
+      { timeout: 120_000 } // 2-minute hard timeout on the API call
+    );
+    console.log("[claude] response received");
 
     let rawText = "";
     for (const block of response.content) {
@@ -234,8 +241,9 @@ Rules:
     const oddsData = JSON.parse(jsonString.trim());
     oddsData.lastUpdated = new Date().toISOString();
     writeOdds(oddsData);
+    console.log("[claude] odds saved, matches:", oddsData.matches?.length ?? 0);
   } catch (err) {
-    console.error("Claude fetch error:", err);
+    console.error("[claude] error:", err);
   }
 }
 
