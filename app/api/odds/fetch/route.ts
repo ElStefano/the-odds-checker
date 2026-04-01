@@ -70,6 +70,7 @@ async function scrapeSite(browser: Browser, entry: BettingUrl): Promise<string> 
     ]);
 
     const text = await page.evaluate(() => {
+      if (!document.body) return "";
       const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);
       function extractText(node: Node): string {
         if (node.nodeType === Node.ELEMENT_NODE && SKIP_TAGS.has((node as Element).tagName)) return "";
@@ -128,15 +129,16 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
       console.log(`[scrape] starting ${entry.url}`);
       const start = Date.now();
       // Hard per-site cap — if scrapeSite hangs, the timeout wins and we move on
+      let hardTimeoutId: ReturnType<typeof setTimeout>;
       const content = await Promise.race([
         scrapeSite(browser, entry),
-        new Promise<string>((resolve) =>
-          setTimeout(() => {
+        new Promise<string>((resolve) => {
+          hardTimeoutId = setTimeout(() => {
             console.warn(`[scrape] hard timeout hit for ${entry.url}`);
             resolve("");
-          }, SITE_TIMEOUT_MS)
-        ),
-      ]);
+          }, SITE_TIMEOUT_MS);
+        }),
+      ]).finally(() => clearTimeout(hardTimeoutId));
       console.log(`[scrape] done ${entry.url} in ${Date.now() - start}ms, chars=${content.length}`);
       if (content) results.push({ entry, content });
     }
