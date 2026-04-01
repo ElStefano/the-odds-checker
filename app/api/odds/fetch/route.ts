@@ -234,11 +234,13 @@ Rules:
       }
     }
 
-    // Strip markdown code fences if present
-    const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
-    const jsonString = jsonMatch ? jsonMatch[1] : rawText;
+    // Extract JSON by finding the outermost { ... } — robust against code fences
+    const start = rawText.indexOf("{");
+    const end = rawText.lastIndexOf("}");
+    if (start === -1 || end === -1) throw new Error("No JSON object found in response");
+    const jsonString = rawText.slice(start, end + 1);
 
-    const oddsData = JSON.parse(jsonString.trim());
+    const oddsData = JSON.parse(jsonString);
     oddsData.lastUpdated = new Date().toISOString();
     writeOdds(oddsData);
     console.log("[claude] odds saved, matches:", oddsData.matches?.length ?? 0);
