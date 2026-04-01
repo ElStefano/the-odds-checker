@@ -190,6 +190,7 @@ Return a JSON object with this exact structure — nothing else, no markdown, ju
 }
 
 Rules:
+- Return AT LEAST 15 matches — scrape broadly across all sports and sites to ensure enough coverage
 - Sort matches so the most compelling / best-value odds come first
 - Within each match, list odds from best value (highest decimal) to lowest
 - Only include odds that are explicitly present in the scraped text — do not invent numbers

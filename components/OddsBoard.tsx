@@ -112,7 +112,7 @@ export function OddsBoard() {
       // Home and away must have odds; draw is optional (hockey etc. have no draw market)
       return groups[0].siteOdds.length > 0 && groups[2].siteOdds.length > 0;
     })
-    .slice(0, 10);
+    .slice(0, 20);
   const lastUpdated = formatLastUpdated(data?.lastUpdated);
 
   return (
