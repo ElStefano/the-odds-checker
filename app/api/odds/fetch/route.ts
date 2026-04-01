@@ -69,7 +69,7 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
           }
         });
 
-        await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 20000 });
+        await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 15000 });
 
         for (const selector of COOKIE_ACCEPT_SELECTORS) {
           try {
@@ -83,7 +83,7 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
         }
 
         try {
-          await page.waitForLoadState("networkidle", { timeout: 10000 });
+          await page.waitForLoadState("networkidle", { timeout: 7000 });
         } catch { /* persistent connections — continue */ }
 
         // Wait until at least 5 decimal odds values appear in the page text.
@@ -91,7 +91,7 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
         try {
           await page.waitForFunction(
             () => (document.body.innerText.match(/\b\d+\.\d{2}\b/g) ?? []).length >= 5,
-            { timeout: 12000 }
+            { timeout: 8000 }
           );
         } catch { /* odds didn't appear — proceed with whatever loaded */ }
 

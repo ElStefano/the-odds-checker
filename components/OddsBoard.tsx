@@ -78,7 +78,7 @@ export function OddsBoard() {
         return;
       }
       // Poll /api/odds until lastUpdated changes (up to ~3 minutes)
-      for (let i = 0; i < 100; i++) {
+      for (let i = 0; i < 140; i++) {
         await new Promise((r) => setTimeout(r, 3000));
         const res = await fetch("/api/odds");
         const d = await res.json();
