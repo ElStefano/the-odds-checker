@@ -13,13 +13,20 @@ export interface SelectionGroup {
 function formatDate(dateStr: string) {
   if (!dateStr) return null;
   try {
+    // Date-only strings (YYYY-MM-DD) are parsed as UTC by the spec, which shifts
+    // the displayed day backwards in timezones east of UTC. Appending T00:00:00
+    // makes the engine treat it as local time instead.
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
+      ? dateStr + "T00:00:00"
+      : dateStr;
+    const date = new Date(normalized);
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(dateStr);
     return new Intl.DateTimeFormat("en-GB", {
       weekday: "short",
       day: "numeric",
       month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(dateStr));
+      ...(isDateOnly ? {} : { hour: "2-digit", minute: "2-digit" }),
+    }).format(date);
   } catch {
     return dateStr;
   }
