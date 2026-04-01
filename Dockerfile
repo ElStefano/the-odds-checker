@@ -26,6 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ENV DATA_DIR=/app/data
+# Install browsers here so they're readable regardless of runtime user
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
 
 WORKDIR /app
 
@@ -35,7 +37,7 @@ COPY package*.json ./
 # We install Chromium manually in the next step so system deps are ready
 RUN npm ci --ignore-scripts
 
-# Install Chromium browser (system deps already installed above)
+# Install Chromium browser into /app/.playwright (world-readable)
 RUN npx playwright install chromium
 
 COPY . .
