@@ -1,13 +1,14 @@
 import { OddsBoard } from "@/components/OddsBoard";
 import { PageHeader } from "@/components/PageHeader";
+import { PageBackground } from "@/components/PageBackground";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gray-50">
+    <PageBackground>
       <div className="max-w-2xl mx-auto px-4 py-10">
         <PageHeader />
         <OddsBoard />
       </div>
-    </main>
+    </PageBackground>
   );
 }

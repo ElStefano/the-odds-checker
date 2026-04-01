@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, FormEvent } from "react";
+import { useState, useEffect, useCallback, useRef, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { BettingUrl } from "@/lib/data";
 
@@ -20,6 +20,11 @@ export default function AdminDashboard() {
   const [addingTo, setAddingTo] = useState<Record<string, string>>({});
   // Scrape preview state: url -> result or "loading"
   const [previews, setPreviews] = useState<Record<string, { charCount: number; pageTitle: string; finalUrl: string; cookieDismissed: boolean; preview: string } | "loading" | string>>({});
+  // Background image state
+  const [hasBackground, setHasBackground] = useState(false);
+  const [bgUploading, setBgUploading] = useState(false);
+  const [bgError, setBgError] = useState("");
+  const bgInputRef = useRef<HTMLInputElement>(null);
 
   const loadUrls = useCallback(async () => {
     const res = await fetch("/api/urls");
@@ -52,7 +57,37 @@ export default function AdminDashboard() {
   useEffect(() => {
     loadUrls();
     loadLastUpdated();
+    fetch("/api/background", { method: "HEAD" }).then((r) => setHasBackground(r.ok)).catch(() => {});
   }, [loadUrls, loadLastUpdated]);
+
+  async function handleBgUpload(e: FormEvent) {
+    e.preventDefault();
+    const file = bgInputRef.current?.files?.[0];
+    if (!file) return;
+    setBgUploading(true);
+    setBgError("");
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
+      const res = await fetch("/api/admin/background", { method: "POST", body: fd });
+      if (!res.ok) {
+        const d = await res.json();
+        setBgError(d.error || "Upload failed.");
+      } else {
+        setHasBackground(true);
+        if (bgInputRef.current) bgInputRef.current.value = "";
+      }
+    } catch {
+      setBgError("Network error.");
+    } finally {
+      setBgUploading(false);
+    }
+  }
+
+  async function handleBgRemove() {
+    await fetch("/api/admin/background", { method: "DELETE" });
+    setHasBackground(false);
+  }
 
   async function postUrl(url: string, label: string): Promise<string | null> {
     const res = await fetch("/api/urls", {
@@ -217,6 +252,40 @@ export default function AdminDashboard() {
           {urls.length === 0 && (
             <p className="mt-2 text-xs text-amber-600">Add at least one URL below before fetching.</p>
           )}
+        </section>
+
+        {/* Background image */}
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-200 px-6 py-5 mb-6">
+          <h2 className="font-semibold text-gray-900 mb-1">Background Image</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Upload an image to use as the background on the odds page.
+            {hasBackground && <span className="ml-1 text-emerald-600 font-medium">Image set.</span>}
+          </p>
+          <form onSubmit={handleBgUpload} className="flex items-center gap-3 flex-wrap">
+            <input
+              ref={bgInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+            />
+            <button
+              type="submit"
+              disabled={bgUploading}
+              className="bg-gray-900 hover:bg-gray-700 disabled:opacity-50 text-white font-semibold px-4 py-1.5 rounded-lg text-sm transition-colors"
+            >
+              {bgUploading ? "Uploading…" : "Upload"}
+            </button>
+            {hasBackground && (
+              <button
+                type="button"
+                onClick={handleBgRemove}
+                className="text-sm text-red-500 hover:text-red-700 font-medium transition-colors"
+              >
+                Remove
+              </button>
+            )}
+          </form>
+          {bgError && <p className="mt-2 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{bgError}</p>}
         </section>
 
         {/* Add new site */}
