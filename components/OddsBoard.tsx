@@ -104,8 +104,13 @@ export function OddsBoard() {
     );
   }
 
+  const todayStr = new Date().toISOString().slice(0, 10);
   const matches = (data?.matches ?? [])
     .filter((m) => {
+      // Only show today's matches
+      if (!m.date) return false;
+      const matchDay = m.date.slice(0, 10);
+      if (matchDay !== todayStr) return false;
       // Require at least 2 distinct sites covering this match
       const distinctSites = new Set(m.odds.map((o) => o.site.toLowerCase())).size;
       if (distinctSites < 2) return false;
@@ -116,7 +121,7 @@ export function OddsBoard() {
       const groups = buildGroups(m.odds, homeTeam, awayTeam);
       return groups[0].siteOdds.length > 0 && groups[2].siteOdds.length > 0;
     })
-    .slice(0, 20);
+    .slice(0, 6);
   const lastUpdated = formatLastUpdated(data?.lastUpdated);
 
   return (

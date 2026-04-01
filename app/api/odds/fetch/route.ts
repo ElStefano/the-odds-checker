@@ -173,11 +173,13 @@ async function runFetch(urls: BettingUrl[]) {
 
   const siteLabels = pageContents.map(({ entry }) => entry.label).join(", ");
 
-  const prompt = `You are an extremely well-read friend who has spent years studying betting markets across every sport. You have a gift for cutting through the noise and curating exactly what's worth paying attention to.
+  const todayISO = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
-Below is the raw text content scraped from these betting sites: ${siteLabels}.
+  const prompt = `Today's date is ${todayISO}.
+
+Below is raw text scraped from these betting sites: ${siteLabels}.
 Each site's content is separated by a === SITE_LABEL (URL) === header.
-You MUST read through every section and extract odds from ALL of them — do not stop after the first few sites.
+Read every section carefully.
 
 ${pagesBlock}
 
@@ -185,7 +187,6 @@ Return a JSON object with this exact structure — nothing else, no markdown, ju
 
 {
   "lastUpdated": "<ISO 8601 timestamp>",
-  "curatorNote": "<One punchy sentence about the single most interesting opportunity you've spotted>",
   "matches": [
     {
       "id": "<slug-style-id>",
@@ -195,7 +196,7 @@ Return a JSON object with this exact structure — nothing else, no markdown, ju
       "odds": [
         {
           "site": "<betting site label>",
-          "market": "<market type e.g. Match Winner, Both Teams to Score, Over 2.5 Goals>",
+          "market": "<market type e.g. Match Winner>",
           "selection": "<selection name>",
           "value": <decimal odds as number>,
           "url": "<source URL>"
@@ -206,14 +207,14 @@ Return a JSON object with this exact structure — nothing else, no markdown, ju
 }
 
 Rules:
-- Only include matches where AT LEAST 2 different betting sites have odds — skip any match covered by only one site
-- Return AT LEAST 10 such matches — scrape broadly across all sports and sites to ensure enough coverage
-- Sort matches so the most compelling / best-value odds come first
+- ONLY include matches taking place TODAY (${todayISO}) — skip all future or past matches
+- Only include matches where AT LEAST 2 different betting sites have odds
+- Return at most 6 matches — pick the most compelling ones
+- Sort matches so the best-value odds come first
 - Within each match, list odds from best value (highest decimal) to lowest
-- Only include odds that are explicitly present in the scraped text — do not invent numbers
-- For each match, extract ALL three Match Winner outcomes (home win, draw, away win) from EVERY site that lists that match — never skip a site's home-win odds just because you already have that outcome from another site
-- The "site" field must use the exact label from the === header of the section the odds were found in (e.g. "Betsson", "Unibet") — never omit a site
-- The curatorNote should sound like a knowledgeable friend tipping you off, not a marketing line`;
+- Only include odds explicitly present in the scraped text — do not invent numbers
+- Extract ALL three Match Winner outcomes (home win, draw, away win) from EVERY site that lists that match
+- The "site" field must use the exact label from the === header (e.g. "Unibet") — never omit a site`;
 
   try {
     console.log("[claude] sending request, prompt length:", prompt.length);
