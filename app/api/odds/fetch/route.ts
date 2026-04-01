@@ -86,7 +86,7 @@ async function scrapeSite(browser: Browser, entry: BettingUrl): Promise<string> 
       return shadowText.length > innerText.length ? shadowText : innerText;
     });
 
-    return text.slice(0, 10000);
+    return text.slice(0, 6000);
   } catch (err) {
     console.error(`[scrape] ${entry.url} failed:`, err);
     return "";
@@ -220,7 +220,7 @@ Rules:
     const response = await client.messages.create(
       {
         model: "claude-sonnet-4-6",
-        max_tokens: 8096,
+        max_tokens: 16000,
         messages: [{ role: "user", content: prompt }],
       },
       { timeout: 120_000 } // 2-minute hard timeout on the API call
