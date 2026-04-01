@@ -20,8 +20,8 @@ const COOKIE_ACCEPT_SELECTORS = [
   'button:has-text("Tillåt alla")',
 ];
 
-// Sequential scraping — one page at a time to stay within Railway memory limits
-const CONCURRENCY = 1;
+// Two pages at a time — resource blocking keeps memory manageable on Railway
+const CONCURRENCY = 2;
 
 async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; content: string }[]> {
   // One shared browser process — dramatically lower RAM than one browser per site
@@ -69,7 +69,7 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
           }
         });
 
-        await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 15000 });
+        await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 12000 });
 
         // Check all cookie selectors in parallel (500 ms each) instead of sequentially
         const cookieResults = await Promise.all(
@@ -88,10 +88,10 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
 
         // Race networkidle against odds appearing — whichever resolves first wins
         await Promise.race([
-          page.waitForLoadState("networkidle", { timeout: 7000 }).catch(() => {}),
+          page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {}),
           page.waitForFunction(
             () => (document.body.innerText.match(/\b\d+\.\d{2}\b/g) ?? []).length >= 5,
-            { timeout: 8000 }
+            { timeout: 6000 }
           ).catch(() => {}),
         ]);
 
@@ -114,7 +114,7 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
           return shadowText.length > innerText.length ? shadowText : innerText;
         });
 
-        results.push({ entry, content: text.slice(0, 20000) });
+        results.push({ entry, content: text.slice(0, 10000) });
       } catch (err) {
         console.error(`Failed to fetch ${entry.url}:`, err);
       } finally {
