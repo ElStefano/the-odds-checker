@@ -23,7 +23,7 @@ const COOKIE_ACCEPT_SELECTORS = [
 // Sequential — safest on Railway memory; hard per-site cap keeps total time bounded
 const CONCURRENCY = 1;
 // Hard cap per site — prevents any single page from blocking the queue
-const SITE_TIMEOUT_MS = 20_000;
+const SITE_TIMEOUT_MS = 30_000;
 
 type Browser = Awaited<ReturnType<typeof chromium.launch>>;
 
@@ -43,7 +43,7 @@ async function scrapeSite(browser: Browser, entry: BettingUrl): Promise<string> 
       else route.continue();
     });
 
-    await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 12000 });
+    await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 20000 });
 
     // Check all cookie selectors in parallel (500 ms each)
     const cookieResults = await Promise.all(
@@ -60,14 +60,11 @@ async function scrapeSite(browser: Browser, entry: BettingUrl): Promise<string> 
       await page.waitForTimeout(1000);
     }
 
-    // Race networkidle against odds appearing — whichever resolves first wins
-    await Promise.race([
-      page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {}),
-      page.waitForFunction(
-        () => (document.body.innerText.match(/\b\d+\.\d{2}\b/g) ?? []).length >= 5,
-        { timeout: 6000 }
-      ).catch(() => {}),
-    ]);
+    // Wait until at least 5 odds values appear — matches both 1.85 (English) and 1,85 (Swedish)
+    await page.waitForFunction(
+      () => (document.body?.innerText.match(/\b\d+[.,]\d{2}\b/g) ?? []).length >= 5,
+      { timeout: 12000 }
+    ).catch(() => {});
 
     const text = await page.evaluate(() => {
       if (!document.body) return "";
