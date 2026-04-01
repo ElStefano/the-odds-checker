@@ -22,9 +22,82 @@ const COOKIE_ACCEPT_SELECTORS = [
 
 // Two pages at a time — resource blocking keeps memory manageable on Railway
 const CONCURRENCY = 2;
+// Hard cap per site — prevents any single page from blocking the queue
+const SITE_TIMEOUT_MS = 20_000;
+
+type Browser = Awaited<ReturnType<typeof chromium.launch>>;
+
+async function scrapeSite(browser: Browser, entry: BettingUrl): Promise<string> {
+  let context;
+  try {
+    context = await browser.newContext({
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      locale: "sv-SE",
+    });
+    const page = await context.newPage();
+
+    // Block images, fonts and media — not needed for text extraction
+    await page.route("**/*", (route) => {
+      if (["image", "font", "media"].includes(route.request().resourceType())) route.abort();
+      else route.continue();
+    });
+
+    await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 12000 });
+
+    // Check all cookie selectors in parallel (500 ms each)
+    const cookieResults = await Promise.all(
+      COOKIE_ACCEPT_SELECTORS.map(async (sel) => {
+        try {
+          const btn = page.locator(sel).first();
+          return (await btn.isVisible({ timeout: 500 })) ? btn : null;
+        } catch { return null; }
+      })
+    );
+    const cookieBtn = cookieResults.find(Boolean);
+    if (cookieBtn) {
+      await cookieBtn.click();
+      await page.waitForTimeout(1000);
+    }
+
+    // Race networkidle against odds appearing — whichever resolves first wins
+    await Promise.race([
+      page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {}),
+      page.waitForFunction(
+        () => (document.body.innerText.match(/\b\d+\.\d{2}\b/g) ?? []).length >= 5,
+        { timeout: 6000 }
+      ).catch(() => {}),
+    ]);
+
+    const text = await page.evaluate(() => {
+      const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);
+      function extractText(node: Node): string {
+        if (node.nodeType === Node.ELEMENT_NODE && SKIP_TAGS.has((node as Element).tagName)) return "";
+        let result = "";
+        if (node.nodeType === Node.TEXT_NODE) {
+          const t = node.textContent?.trim();
+          if (t) result += t + "\n";
+        }
+        const shadowRoot = (node as Element).shadowRoot;
+        if (shadowRoot) result += extractText(shadowRoot);
+        for (const child of node.childNodes) result += extractText(child);
+        return result;
+      }
+      const shadowText = extractText(document.body).replace(/\n{3,}/g, "\n\n").trim();
+      const innerText = document.body.innerText.trim();
+      return shadowText.length > innerText.length ? shadowText : innerText;
+    });
+
+    return text.slice(0, 10000);
+  } catch (err) {
+    console.error(`[scrape] ${entry.url} failed:`, err);
+    return "";
+  } finally {
+    await context?.close().catch(() => {});
+  }
+}
 
 async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; content: string }[]> {
-  // One shared browser process — dramatically lower RAM than one browser per site
   const browser = await chromium.launch({
     headless: true,
     args: [
@@ -43,90 +116,33 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
   });
 
   const results: { entry: BettingUrl; content: string }[] = [];
-
-  // Simple concurrency limiter: at most CONCURRENCY pages open at once
   const queue = [...entries];
+
   async function worker() {
     while (queue.length > 0) {
       const entry = queue.shift();
       if (!entry) break;
-      let context;
-      try {
-        context = await browser.newContext({
-          userAgent:
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-          locale: "sv-SE",
-        });
-        const page = await context.newPage();
-
-        // Block images, fonts and media — not needed for text extraction, saves memory and bandwidth
-        await page.route("**/*", (route) => {
-          const type = route.request().resourceType();
-          if (["image", "font", "media"].includes(type)) {
-            route.abort();
-          } else {
-            route.continue();
-          }
-        });
-
-        await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 12000 });
-
-        // Check all cookie selectors in parallel (500 ms each) instead of sequentially
-        const cookieResults = await Promise.all(
-          COOKIE_ACCEPT_SELECTORS.map(async (sel) => {
-            try {
-              const btn = page.locator(sel).first();
-              return (await btn.isVisible({ timeout: 500 })) ? btn : null;
-            } catch { return null; }
-          })
-        );
-        const cookieBtn = cookieResults.find(Boolean);
-        if (cookieBtn) {
-          await cookieBtn.click();
-          await page.waitForTimeout(1000);
-        }
-
-        // Race networkidle against odds appearing — whichever resolves first wins
-        await Promise.race([
-          page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {}),
-          page.waitForFunction(
-            () => (document.body.innerText.match(/\b\d+\.\d{2}\b/g) ?? []).length >= 5,
-            { timeout: 6000 }
-          ).catch(() => {}),
-        ]);
-
-        const text = await page.evaluate(() => {
-          const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);
-          function extractText(node: Node): string {
-            if (node.nodeType === Node.ELEMENT_NODE && SKIP_TAGS.has((node as Element).tagName)) return "";
-            let result = "";
-            if (node.nodeType === Node.TEXT_NODE) {
-              const t = node.textContent?.trim();
-              if (t) result += t + "\n";
-            }
-            const shadowRoot = (node as Element).shadowRoot;
-            if (shadowRoot) result += extractText(shadowRoot);
-            for (const child of node.childNodes) result += extractText(child);
-            return result;
-          }
-          const shadowText = extractText(document.body).replace(/\n{3,}/g, "\n\n").trim();
-          const innerText = document.body.innerText.trim();
-          return shadowText.length > innerText.length ? shadowText : innerText;
-        });
-
-        results.push({ entry, content: text.slice(0, 10000) });
-      } catch (err) {
-        console.error(`Failed to fetch ${entry.url}:`, err);
-      } finally {
-        await context?.close();
-      }
+      console.log(`[scrape] starting ${entry.url}`);
+      const start = Date.now();
+      // Hard per-site cap — if scrapeSite hangs, the timeout wins and we move on
+      const content = await Promise.race([
+        scrapeSite(browser, entry),
+        new Promise<string>((resolve) =>
+          setTimeout(() => {
+            console.warn(`[scrape] hard timeout hit for ${entry.url}`);
+            resolve("");
+          }, SITE_TIMEOUT_MS)
+        ),
+      ]);
+      console.log(`[scrape] done ${entry.url} in ${Date.now() - start}ms, chars=${content.length}`);
+      if (content) results.push({ entry, content });
     }
   }
 
   try {
     await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
   } finally {
-    await browser.close();
+    await browser.close().catch(() => {});
   }
 
   return results;
