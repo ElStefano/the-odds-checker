@@ -100,6 +100,7 @@ async function scrapeSite(browser: Browser, entry: BettingUrl): Promise<string> 
 async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; content: string }[]> {
   console.log("[scrape] launching browser");
   const browser = await chromium.launch({
+    executablePath: "/usr/bin/chromium",
     headless: true,
     args: [
       "--no-sandbox",

@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
   if (!url) return NextResponse.json({ error: "url required" }, { status: 400 });
 
   const browser = await chromium.launch({
+    executablePath: "/usr/bin/chromium",
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
