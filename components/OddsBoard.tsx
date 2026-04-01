@@ -146,15 +146,7 @@ export function OddsBoard() {
         </div>
       )}
 
-      {/* Curator note */}
-      {data?.curatorNote && (
-        <div className="mb-6 bg-indigo-50 border border-indigo-100 rounded-xl px-5 py-4">
-          <p className="text-sm font-medium text-indigo-500 mb-1">{t.curatorSays}</p>
-          <p className="text-indigo-900 text-base">{data.curatorNote}</p>
-        </div>
-      )}
-
-      {isAdmin && (
+{isAdmin && (
         <div className="mb-4 flex items-center gap-3">
           <button
             onClick={handleFetch}
