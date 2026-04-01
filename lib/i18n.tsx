@@ -41,7 +41,7 @@ const translations = {
   },
 } as const;
 
-type Translations = typeof translations.sv;
+type Translations = (typeof translations)[Lang];
 
 interface LangContextValue {
   lang: Lang;
