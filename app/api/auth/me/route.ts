@@ -3,5 +3,8 @@ import { getSession } from "@/lib/session";
 
 export async function GET() {
   const session = await getSession();
-  return NextResponse.json({ isAdmin: session.isAdmin ?? false });
+  return NextResponse.json(
+    { isAdmin: session.isAdmin ?? false },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }

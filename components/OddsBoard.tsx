@@ -63,7 +63,7 @@ export function OddsBoard() {
 
   useEffect(() => {
     loadOdds();
-    fetch("/api/auth/me").then((r) => r.json()).then((d) => setIsAdmin(d.isAdmin ?? false));
+    fetch("/api/auth/me", { cache: "no-store" }).then((r) => r.json()).then((d) => setIsAdmin(d.isAdmin ?? false));
   }, [loadOdds]);
 
   async function handleFetch() {
