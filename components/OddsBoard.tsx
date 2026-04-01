@@ -106,12 +106,14 @@ export function OddsBoard() {
 
   const matches = (data?.matches ?? [])
     .filter((m) => {
-      // Only show matches where all 3 outcomes (home/draw/away) have at least one site with odds
+      // Require at least 2 distinct sites covering this match
+      const distinctSites = new Set(m.odds.map((o) => o.site.toLowerCase())).size;
+      if (distinctSites < 2) return false;
+      // Home and away must have odds; draw is optional (hockey etc.)
       const parts = m.name.split(/ vs\.? /i);
       const homeTeam = parts[0]?.trim() ?? "";
       const awayTeam = parts[1]?.trim() ?? "";
       const groups = buildGroups(m.odds, homeTeam, awayTeam);
-      // Home and away must have odds; draw is optional (hockey etc. have no draw market)
       return groups[0].siteOdds.length > 0 && groups[2].siteOdds.length > 0;
     })
     .slice(0, 20);
