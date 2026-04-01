@@ -12,6 +12,17 @@ export function PageHeader() {
           The Odds Checker
         </h1>
         <p className="text-gray-500 mt-1 text-sm">{t.tagline}</p>
+        <p className="text-gray-400 mt-0.5 text-xs">
+          Built by{" "}
+          <a
+            href="https://www.use.se"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-indigo-500 hover:text-indigo-700 transition-colors"
+          >
+            UXGaming
+          </a>
+        </p>
       </div>
       <div className="flex items-center gap-1 mt-1 flex-shrink-0">
         {(["sv", "en"] as Lang[]).map((l) => (
