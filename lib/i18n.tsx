@@ -8,7 +8,7 @@ const translations = {
   sv: {
     tagline: "Kurerade matchodds, bäst värde först.",
     checkingOddsFrom: "Kollar odds från",
-    curatorSays: "Din kurator säger",
+    curatorSays: "Tips från coachen",
     fetchOdds: "Hämta odds",
     fetching: "Hämtar…",
     oddsUpdated: "Odds uppdaterade.",
