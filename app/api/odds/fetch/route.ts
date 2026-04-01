@@ -71,31 +71,29 @@ async function scrapeAll(entries: BettingUrl[]): Promise<{ entry: BettingUrl; co
 
         await page.goto(entry.url, { waitUntil: "domcontentloaded", timeout: 15000 });
 
-        for (const selector of COOKIE_ACCEPT_SELECTORS) {
-          try {
-            const btn = page.locator(selector).first();
-            if (await btn.isVisible({ timeout: 2000 })) {
-              await btn.click();
-              await page.waitForTimeout(1500);
-              break;
-            }
-          } catch { /* try next */ }
+        // Check all cookie selectors in parallel (500 ms each) instead of sequentially
+        const cookieResults = await Promise.all(
+          COOKIE_ACCEPT_SELECTORS.map(async (sel) => {
+            try {
+              const btn = page.locator(sel).first();
+              return (await btn.isVisible({ timeout: 500 })) ? btn : null;
+            } catch { return null; }
+          })
+        );
+        const cookieBtn = cookieResults.find(Boolean);
+        if (cookieBtn) {
+          await cookieBtn.click();
+          await page.waitForTimeout(1000);
         }
 
-        try {
-          await page.waitForLoadState("networkidle", { timeout: 7000 });
-        } catch { /* persistent connections — continue */ }
-
-        // Wait until at least 5 decimal odds values appear in the page text.
-        // This handles sites that load odds via API after the page settles.
-        try {
-          await page.waitForFunction(
+        // Race networkidle against odds appearing — whichever resolves first wins
+        await Promise.race([
+          page.waitForLoadState("networkidle", { timeout: 7000 }).catch(() => {}),
+          page.waitForFunction(
             () => (document.body.innerText.match(/\b\d+\.\d{2}\b/g) ?? []).length >= 5,
             { timeout: 8000 }
-          );
-        } catch { /* odds didn't appear — proceed with whatever loaded */ }
-
-        await page.waitForTimeout(500);
+          ).catch(() => {}),
+        ]);
 
         const text = await page.evaluate(() => {
           const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "META", "LINK", "HEAD"]);
