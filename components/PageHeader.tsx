@@ -20,7 +20,7 @@ export function PageHeader() {
             rel="noopener noreferrer"
             className="text-indigo-500 hover:text-indigo-700 transition-colors"
           >
-            UXGaming
+            UXiGaming
           </a>
         </p>
       </div>
